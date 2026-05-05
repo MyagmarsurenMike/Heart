@@ -267,6 +267,16 @@ export async function movePage(opts: {
   };
 }
 
+export async function savePageBody(id: string, body: string): Promise<Page> {
+  const page = await findPageById(id);
+  if (!page) throw new Error(`savePageBody: page ${id} not found`);
+  const { fm } = await readPage(page.path);
+  fm.updated = new Date().toISOString();
+  await writePage(page.path, fm, body);
+  const stat = await fs.stat(page.path);
+  return { ...page, body, bodyMtime: stat.mtimeMs, updated: fm.updated };
+}
+
 export async function reorderPage(opts: {
   id: string;
   beforeId: string | null;

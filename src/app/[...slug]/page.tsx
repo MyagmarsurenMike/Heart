@@ -1,6 +1,9 @@
+import { promises as fs } from "node:fs";
+import matter from "gray-matter";
 import { notFound } from "next/navigation";
 import { getIndex } from "@/server/index/loader";
 import { Breadcrumb, type Crumb } from "@/components/workspace/breadcrumb";
+import { Editor } from "@/components/editor/editor";
 
 type Params = { slug: string[] };
 
@@ -15,6 +18,9 @@ export default async function PagePage({
   const page = index.pages.find((p) => p.url === url);
   if (!page) notFound();
 
+  const raw = await fs.readFile(page.path, "utf8");
+  const body = matter(raw).content;
+
   const crumbs: Crumb[] = [
     { label: "notes", href: "/" },
     ...slug.slice(0, -1).map((segment, i) => {
@@ -26,9 +32,9 @@ export default async function PagePage({
   ];
 
   return (
-    <article className="mx-auto flex w-full max-w-[720px] flex-col gap-8 px-8 py-12">
+    <article className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-8 py-12">
       <Breadcrumb items={crumbs} />
-      <header className="flex flex-col gap-2 border-b border-[var(--border-subtle)] pb-4">
+      <header className="flex flex-col gap-2 pb-2">
         <div className="flex items-center gap-3">
           {page.icon ? (
             <span className="text-[22px] leading-none">{page.icon}</span>
@@ -43,9 +49,7 @@ export default async function PagePage({
           </p>
         ) : null}
       </header>
-      <p className="text-[12px] text-[var(--text-disabled)]">
-        editor lands in phase 2.
-      </p>
+      <Editor pageId={page.id} initial={body.trimStart()} />
     </article>
   );
 }

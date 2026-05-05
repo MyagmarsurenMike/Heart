@@ -8,6 +8,7 @@ import {
   movePage,
   renamePage,
   reorderPage,
+  savePageBody,
 } from "@/server/storage/pages";
 import { getStoragePaths } from "@/server/storage/paths";
 import { notifyStorageChange } from "@/server/index/watcher";
@@ -44,6 +45,14 @@ export async function movePageAction(opts: {
   await movePage(opts);
   notifyStorageChange();
   revalidatePath("/", "layout");
+}
+
+export async function savePageBodyAction(id: string, body: string): Promise<void> {
+  await savePageBody(id, body);
+  notifyStorageChange();
+  // No revalidatePath here — editor owns the body; revalidating mid-typing
+  // would race with debounced saves. Sidebar mtime ordering will pick up
+  // the change on the next natural re-render.
 }
 
 export async function reorderPageAction(opts: {
