@@ -1,8 +1,16 @@
 "use client";
+/* eslint-disable react-hooks/refs -- dnd-kit's setNodeRef is a callback ref, not a React ref; reading isDragging/isOver during render is intended */
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  useTransition,
+} from "react";
 import { ChevronRight, Plus } from "lucide-react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import {
@@ -29,7 +37,12 @@ import { DeletePageDialog } from "./delete-page-dialog";
 type RowKind = "nest" | "before" | "after";
 type DropTarget =
   | { kind: "nest"; targetId: string }
-  | { kind: "between"; parentId: string | null; beforeId: string | null; afterId: string | null }
+  | {
+      kind: "between";
+      parentId: string | null;
+      beforeId: string | null;
+      afterId: string | null;
+    }
   | { kind: "root" };
 
 function dropId(kind: RowKind, id: string): string {
@@ -45,7 +58,84 @@ function parseDropId(raw: string): DropTarget | null {
   return null;
 }
 
+type DndProps = {
+  setRef: (el: HTMLDivElement | null) => void;
+  listeners?: Record<string, unknown>;
+  attributes?: Record<string, unknown>;
+  isDragging: boolean;
+  isOver: boolean;
+};
+
+const NO_DND: DndProps = {
+  setRef: () => {},
+  isDragging: false,
+  isOver: false,
+};
+
+const NOOP_SUBSCRIBE = () => () => {};
+
+// dnd-kit allocates aria ids from a global counter that diverges between
+// the SSR pass and the client (StrictMode double-render bumps it). Render
+// the DnD-enabled tree only after mount; the SSR pass renders an
+// equivalent static tree without any DnD wiring so hydration matches.
 export function PageTree({ nodes }: { nodes: PageNode[] }) {
+  const isClient = useSyncExternalStore(
+    NOOP_SUBSCRIBE,
+    () => true,
+    () => false
+  );
+  if (!isClient) return <StaticTree nodes={nodes} />;
+  return <InteractiveTree nodes={nodes} />;
+}
+
+function StaticTree({ nodes }: { nodes: PageNode[] }) {
+  if (nodes.length === 0) {
+    return (
+      <div className="flex flex-col gap-2 px-3 py-2">
+        <p className="text-[12px] text-[var(--text-disabled)]">no pages yet</p>
+      </div>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-px">
+      {nodes.map((n) => (
+        <StaticBranch key={n.id} node={n} depth={0} />
+      ))}
+    </ul>
+  );
+}
+
+function StaticBranch({ node, depth }: { node: PageNode; depth: number }) {
+  return (
+    <li>
+      <RowView
+        node={node}
+        depth={depth}
+        active={false}
+        open
+        renaming={false}
+        pending={false}
+        hasChildren={node.children.length > 0}
+        dnd={NO_DND}
+        onToggle={() => {}}
+        onRequestRename={() => {}}
+        onAddSubpage={() => {}}
+        onRequestDelete={() => {}}
+        onAddSibling={() => {}}
+        onCommitRename={() => {}}
+      />
+      {node.children.length > 0 ? (
+        <ul className="flex flex-col gap-px">
+          {node.children.map((c) => (
+            <StaticBranch key={c.id} node={c} depth={depth + 1} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function InteractiveTree({ nodes }: { nodes: PageNode[] }) {
   const [pendingDelete, setPendingDelete] = useState<PageNode | null>(null);
   const [activeNode, setActiveNode] = useState<PageNode | null>(null);
   const [, start] = useTransition();
@@ -54,7 +144,10 @@ export function PageTree({ nodes }: { nodes: PageNode[] }) {
   );
 
   const flat = useMemo(() => flatten(nodes), [nodes]);
-  const byId = useMemo(() => new Map(flat.map((f) => [f.node.id, f])), [flat]);
+  const byId = useMemo(
+    () => new Map(flat.map((f) => [f.node.id, f])),
+    [flat]
+  );
 
   const onDragStart = (e: DragStartEvent) => {
     const f = byId.get(String(e.active.id));
@@ -86,7 +179,7 @@ export function PageTree({ nodes }: { nodes: PageNode[] }) {
       return;
     }
     if (target.kind === "between") {
-      const sameParent = activeNodeParent(byId, activeId) === target.parentId;
+      const sameParent = byId.get(activeId)?.parentId === target.parentId;
       if (sameParent) {
         start(() => {
           void reorderPageAction({
@@ -97,10 +190,7 @@ export function PageTree({ nodes }: { nodes: PageNode[] }) {
         });
       } else {
         start(async () => {
-          await movePageAction({
-            id: activeId,
-            newParentId: target.parentId,
-          });
+          await movePageAction({ id: activeId, newParentId: target.parentId });
           await reorderPageAction({
             id: activeId,
             beforeId: target.beforeId,
@@ -125,7 +215,7 @@ export function PageTree({ nodes }: { nodes: PageNode[] }) {
       <RootDropZone />
       <ul className="flex flex-col gap-px">
         {nodes.map((n, i) => (
-          <PageTreeBranch
+          <Branch
             key={n.id}
             node={n}
             depth={0}
@@ -180,13 +270,6 @@ function flatten(
   return out;
 }
 
-function activeNodeParent(
-  byId: Map<string, { parentId: string | null }>,
-  id: string
-): string | null {
-  return byId.get(id)?.parentId ?? null;
-}
-
 function RootDropZone() {
   const { setNodeRef, isOver } = useDroppable({ id: rootDropId() });
   return (
@@ -194,13 +277,14 @@ function RootDropZone() {
       ref={setNodeRef}
       className={cn(
         "mb-1 h-1.5 rounded-sm transition-colors",
-        isOver && "bg-[var(--accent-muted)] outline outline-1 outline-[var(--accent)]"
+        isOver &&
+          "bg-[var(--accent-muted)] outline outline-1 outline-[var(--accent)]"
       )}
     />
   );
 }
 
-function PageTreeBranch({
+function Branch({
   node,
   depth,
   indexInParent,
@@ -217,7 +301,6 @@ function PageTreeBranch({
 }) {
   const [open, setOpen] = useState(true);
   const isFirst = indexInParent === 0;
-
   return (
     <li>
       {isFirst ? (
@@ -232,7 +315,7 @@ function PageTreeBranch({
           depth={depth}
         />
       ) : null}
-      <PageTreeItem
+      <DraggableRow
         node={node}
         depth={depth}
         open={open}
@@ -242,7 +325,7 @@ function PageTreeBranch({
       {node.children.length > 0 && open ? (
         <ul className="flex flex-col gap-px">
           {node.children.map((c, i) => (
-            <PageTreeBranch
+            <Branch
               key={c.id}
               node={c}
               depth={depth + 1}
@@ -291,7 +374,7 @@ function BetweenStrip({
   );
 }
 
-function PageTreeItem({
+function DraggableRow({
   node,
   depth,
   open,
@@ -313,7 +396,6 @@ function PageTreeItem({
 
   const drag = useDraggable({ id: node.id, disabled: renaming });
   const drop = useDroppable({ id: dropId("nest", node.id) });
-
   const setRefs = (el: HTMLDivElement | null) => {
     drag.setNodeRef(el);
     drop.setNodeRef(el);
@@ -338,27 +420,84 @@ function PageTreeItem({
     });
 
   return (
+    <RowView
+      node={node}
+      depth={depth}
+      active={active}
+      open={open}
+      renaming={renaming}
+      pending={pending}
+      hasChildren={hasChildren}
+      dnd={{
+        setRef: setRefs,
+        listeners: drag.listeners as unknown as Record<string, unknown> | undefined,
+        attributes: drag.attributes as unknown as Record<string, unknown>,
+        isDragging: drag.isDragging,
+        isOver: drop.isOver,
+      }}
+      onToggle={() => setOpen(!open)}
+      onRequestRename={() => setRenaming(true)}
+      onAddSubpage={addSubpage}
+      onAddSibling={addSibling}
+      onRequestDelete={() => onRequestDelete(node)}
+      onCommitRename={() => setRenaming(false)}
+    />
+  );
+}
+
+function RowView({
+  node,
+  depth,
+  active,
+  open,
+  renaming,
+  pending,
+  hasChildren,
+  dnd,
+  onToggle,
+  onRequestRename,
+  onAddSubpage,
+  onAddSibling,
+  onRequestDelete,
+  onCommitRename,
+}: {
+  node: PageNode;
+  depth: number;
+  active: boolean;
+  open: boolean;
+  renaming: boolean;
+  pending: boolean;
+  hasChildren: boolean;
+  dnd: DndProps;
+  onToggle: () => void;
+  onRequestRename: () => void;
+  onAddSubpage: () => void;
+  onAddSibling: () => void;
+  onRequestDelete: () => void;
+  onCommitRename: () => void;
+}) {
+  return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
-          ref={setRefs}
-          {...drag.listeners}
-          {...drag.attributes}
+          ref={dnd.setRef}
+          {...(dnd.listeners ?? {})}
+          {...(dnd.attributes ?? {})}
           className={cn(
             "group relative flex h-7 items-center gap-1 rounded-sm pr-1 text-[12px]",
             "text-[var(--text-secondary)] transition-colors",
             "hover:bg-[var(--bg-tertiary)]",
             active &&
               "bg-[var(--accent-muted)] text-[var(--text-primary)] before:absolute before:inset-y-0 before:left-0 before:w-[2px] before:bg-[var(--accent)]",
-            drop.isOver &&
+            dnd.isOver &&
               "outline outline-1 outline-[var(--accent)] bg-[var(--accent-muted)]",
-            drag.isDragging && "opacity-30",
+            dnd.isDragging && "opacity-30",
             pending && "opacity-60"
           )}
           style={{ paddingLeft: `${6 + depth * 16}px` }}
           onDoubleClick={(e) => {
             e.preventDefault();
-            setRenaming(true);
+            onRequestRename();
           }}
         >
           {hasChildren ? (
@@ -366,7 +505,7 @@ function PageTreeItem({
               type="button"
               aria-label={open ? "collapse" : "expand"}
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => setOpen(!open)}
+              onClick={onToggle}
               className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-disabled)] hover:text-[var(--text-secondary)]"
             >
               <ChevronRight
@@ -384,7 +523,7 @@ function PageTreeItem({
             <RenameField
               id={node.id}
               initial={node.title}
-              onDone={() => setRenaming(false)}
+              onDone={onCommitRename}
             />
           ) : (
             <Link
@@ -405,7 +544,7 @@ function PageTreeItem({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                addSubpage();
+                onAddSubpage();
               }}
               disabled={pending}
               className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--text-disabled)] opacity-0 transition-opacity hover:bg-[var(--bg-elevated)] hover:text-[var(--text-secondary)] group-hover:opacity-100 focus:opacity-100"
@@ -422,11 +561,11 @@ function PageTreeItem({
             "bg-[var(--bg-elevated)] p-1 text-[12px] text-[var(--text-secondary)]"
           )}
         >
-          <MenuItem onSelect={() => setRenaming(true)}>Rename</MenuItem>
-          <MenuItem onSelect={addSubpage}>Add subpage</MenuItem>
-          <MenuItem onSelect={addSibling}>Add sibling</MenuItem>
+          <MenuItem onSelect={onRequestRename}>Rename</MenuItem>
+          <MenuItem onSelect={onAddSubpage}>Add subpage</MenuItem>
+          <MenuItem onSelect={onAddSibling}>Add sibling</MenuItem>
           <ContextMenu.Separator className="my-1 h-px bg-[var(--border-subtle)]" />
-          <MenuItem destructive onSelect={() => onRequestDelete(node)}>
+          <MenuItem destructive onSelect={onRequestDelete}>
             Delete
           </MenuItem>
         </ContextMenu.Content>
