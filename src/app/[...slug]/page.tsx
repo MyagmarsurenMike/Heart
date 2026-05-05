@@ -49,7 +49,7 @@ export default async function PagePage({
           </p>
         ) : null}
       </header>
-      <Editor pageId={page.id} initial={body.trimStart()} />
+      <Editor pageId={page.id} pageUrl={page.url} initial={body.trimStart()} />
     </article>
   );
 }

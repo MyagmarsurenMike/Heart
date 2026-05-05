@@ -132,19 +132,21 @@ const ITEMS: Item[] = [
   {
     label: "Image",
     icon: ImageIcon,
-    keywords: ["image", "picture"],
+    keywords: ["image", "picture", "upload"],
     command: ({ editor, range }) => {
-      const url = window.prompt("Image URL");
-      if (!url) {
-        editor.chain().focus().deleteRange(range).run();
-        return;
-      }
-      editor.chain().focus().deleteRange(range).setImage({ src: url }).run();
+      editor.chain().focus().deleteRange(range).run();
+      const onPick = (editor.extensionManager.extensions.find(
+        (e) => e.name === "slashMenu"
+      )?.options.onPickImage as (() => void) | undefined) ?? null;
+      onPick?.();
     },
   },
 ];
 
-export const SlashMenu = Extension.create({
+export const SlashMenu = Extension.create<{
+  suggestion: Partial<SuggestionOptions<Item, Item>>;
+  onPickImage?: () => void;
+}>({
   name: "slashMenu",
   addOptions() {
     return {
@@ -155,6 +157,7 @@ export const SlashMenu = Extension.create({
           (props as Item).command({ editor, range });
         },
       } as Partial<SuggestionOptions<Item, Item>>,
+      onPickImage: undefined,
     };
   },
   addProseMirrorPlugins() {
@@ -186,7 +189,7 @@ type RendererHandle = {
 type RendererProps = {
   items: Item[];
   command: (item: Item) => void;
-  clientRect: (() => DOMRect | null) | null;
+  clientRect?: (() => DOMRect | null) | null;
   editor: TiptapEditor;
 };
 

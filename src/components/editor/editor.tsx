@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/refs -- fileInputRef is forwarded into a stable callback that fires only on user click, not during render */
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
@@ -6,11 +7,12 @@ import StarterKit from "@tiptap/starter-kit";
 import LinkExt from "@tiptap/extension-link";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import ImageExt from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Markdown } from "tiptap-markdown";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SlashMenu } from "./slash-menu";
+import { HearthImage } from "./image-extension";
+import { rewriteForDisk, rewriteForEditor, uploadAttachment, attachmentPrefix } from "./image-paths";
 import { Bold, Code, Italic, Link as LinkIcon, Strikethrough } from "lucide-react";
 import { savePageBodyAction } from "@/server/actions/pages";
 import { markSelfSaved } from "./save-cooldown";
@@ -27,14 +29,21 @@ function getMarkdown(e: { storage: unknown }): string {
 
 export function Editor({
   pageId,
+  pageUrl,
   initial,
 }: {
   pageId: string;
+  pageUrl: string;
   initial: string;
 }) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
-  const lastInitialRef = useRef(initial);
+  const initialForEditor = useMemo(
+    () => rewriteForEditor(initial, pageUrl),
+    [initial, pageUrl]
+  );
+  const lastInitialRef = useRef(initialForEditor);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
     extensions: [
@@ -50,7 +59,7 @@ export function Editor({
       }),
       TaskList,
       TaskItem.configure({ nested: true }),
-      ImageExt.configure({ inline: false, allowBase64: false }),
+      HearthImage(pageUrl),
       Placeholder.configure({
         placeholder: ({ node }) =>
           node.type.name === "paragraph" ? "Type / for commands…" : "",
@@ -63,9 +72,11 @@ export function Editor({
         breaks: false,
         transformPastedText: true,
       }),
-      SlashMenu,
+      SlashMenu.configure({
+        onPickImage: () => fileInputRef.current?.click(),
+      }),
     ],
-    content: initial,
+    content: initialForEditor,
     immediatelyRender: false,
     editorProps: {
       attributes: {
@@ -77,7 +88,7 @@ export function Editor({
       setStatus("saving");
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        const md = getMarkdown(editor);
+        const md = rewriteForDisk(getMarkdown(editor), pageUrl);
         markSelfSaved();
         void savePageBodyAction(pageId, md).then(() => setStatus("saved"));
       }, DEBOUNCE_MS);
@@ -88,10 +99,10 @@ export function Editor({
   // Skip for in-place edits to the same page (we already own that state).
   useEffect(() => {
     if (!editor) return;
-    if (initial === lastInitialRef.current) return;
-    lastInitialRef.current = initial;
-    editor.commands.setContent(initial, { emitUpdate: false });
-  }, [editor, initial]);
+    if (initialForEditor === lastInitialRef.current) return;
+    lastInitialRef.current = initialForEditor;
+    editor.commands.setContent(initialForEditor, { emitUpdate: false });
+  }, [editor, initialForEditor]);
 
   // Flush pending save on unmount so navigating away doesn't drop edits.
   useEffect(() => {
@@ -99,13 +110,24 @@ export function Editor({
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         if (editor) {
-          const md = getMarkdown(editor);
+          const md = rewriteForDisk(getMarkdown(editor), pageUrl);
           markSelfSaved();
           void savePageBodyAction(pageId, md);
         }
       }
     };
-  }, [editor, pageId]);
+  }, [editor, pageId, pageUrl]);
+
+  const onPickFile = async (file: File) => {
+    if (!editor) return;
+    try {
+      const filename = await uploadAttachment(pageUrl, file);
+      const src = `${attachmentPrefix(pageUrl)}${encodeURIComponent(filename)}`;
+      editor.chain().focus().setImage({ src, alt: file.name }).run();
+    } catch (err) {
+      console.error("[hearth] image upload failed", err);
+    }
+  };
 
   if (!editor) {
     return (
@@ -170,6 +192,17 @@ export function Editor({
         </ToolbarButton>
       </BubbleMenu>
       <EditorContent editor={editor} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void onPickFile(file);
+        }}
+      />
       <SaveStatus status={status} />
     </div>
   );
