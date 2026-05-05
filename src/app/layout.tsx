@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeScript } from "@/components/theme/theme-script";
 import { Sidebar } from "@/components/workspace/sidebar";
 import { StatusBar } from "@/components/workspace/status-bar";
+import { StorageEventListener } from "@/components/workspace/storage-event-listener";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -36,6 +37,7 @@ export default function RootLayout({
           </div>
           <StatusBar />
         </div>
+        <StorageEventListener />
       </body>
     </html>
   );
