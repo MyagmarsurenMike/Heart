@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# hearth user data — source of truth, never committed
+/storage/
+
+# local-only docs and design assets
+/CLAUDE.md
+/PLAN.md
+/design/
