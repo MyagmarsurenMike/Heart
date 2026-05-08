@@ -47,9 +47,24 @@ export async function movePageAction(opts: {
   revalidatePath("/", "layout");
 }
 
-export async function savePageBodyAction(id: string, body: string): Promise<void> {
-  await savePageBody(id, body);
-  notifyStorageChange();
+export async function savePageBodyAction(
+  id: string,
+  body: string
+): Promise<{ ok: boolean; reason?: "missing" }> {
+  try {
+    const saved = await savePageBody(id, body);
+    if (!saved) {
+      // Page deleted/moved-to-trash while a debounced save was pending.
+      // Don't surface as a runtime overlay — the user wanted it gone.
+      console.warn(`[hearth] savePageBody skipped: ${id} no longer exists`);
+      return { ok: false, reason: "missing" };
+    }
+    notifyStorageChange();
+    return { ok: true };
+  } catch (err) {
+    console.error("[hearth] savePageBody failed", err);
+    return { ok: false };
+  }
   // No revalidatePath here — editor owns the body; revalidating mid-typing
   // would race with debounced saves. Sidebar mtime ordering will pick up
   // the change on the next natural re-render.

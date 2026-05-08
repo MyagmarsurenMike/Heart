@@ -267,9 +267,15 @@ export async function movePage(opts: {
   };
 }
 
-export async function savePageBody(id: string, body: string): Promise<Page> {
+// Returns null when the page no longer exists. Callers should treat that
+// as a no-op rather than an error: the page may have been deleted or moved
+// to trash while the editor's debounced save was in flight.
+export async function savePageBody(
+  id: string,
+  body: string
+): Promise<Page | null> {
   const page = await findPageById(id);
-  if (!page) throw new Error(`savePageBody: page ${id} not found`);
+  if (!page) return null;
   const { fm } = await readPage(page.path);
   fm.updated = new Date().toISOString();
   await writePage(page.path, fm, body);
