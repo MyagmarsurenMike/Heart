@@ -28,8 +28,11 @@ export function notifyStorageChange(): void {
 
 function ensureWatcher(): FSWatcher {
   if (watcher) return watcher;
-  const { notes } = getStoragePaths();
-  watcher = chokidar.watch(notes, {
+  const { root } = getStoragePaths();
+  // Watch the whole storage root so habits/finance/calendar edits also
+  // surface. .hearth/ (cache, trash, backups) and dotfiles/tmp/swp are
+  // ignored — those are noise that would re-trigger the index.
+  watcher = chokidar.watch(root, {
     ignoreInitial: true,
     ignored: (path: string) => {
       const base = path.split(/[\\/]/).pop() ?? "";
