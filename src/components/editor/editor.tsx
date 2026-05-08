@@ -81,7 +81,7 @@ export function Editor({
     editorProps: {
       attributes: {
         class:
-          "hearth-prose outline-none min-h-[60vh] max-w-[720px] mx-auto text-[14px] leading-[1.7] text-[var(--text-secondary)]",
+          "hearth-prose outline-none min-h-[60vh] w-full max-w-[720px] mx-auto text-[14px] leading-[1.7] text-[var(--text-secondary)]",
       },
     },
     onUpdate({ editor }) {

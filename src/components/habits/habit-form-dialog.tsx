@@ -51,7 +51,7 @@ export function HabitFormDialog(props: FormProps) {
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40" />
         <Dialog.Content
           className={cn(
-            "fixed left-1/2 top-1/2 z-50 w-[460px] -translate-x-1/2 -translate-y-1/2",
+            "fixed left-1/2 top-1/2 z-50 w-[min(460px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2",
             "rounded border border-[var(--border-default)] bg-[var(--bg-elevated)] p-5"
           )}
         >

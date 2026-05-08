@@ -5,6 +5,7 @@ import { ThemeScript } from "@/components/theme/theme-script";
 import { Sidebar } from "@/components/workspace/sidebar";
 import { StatusBar } from "@/components/workspace/status-bar";
 import { StorageEventListener } from "@/components/workspace/storage-event-listener";
+import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -28,15 +29,9 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body>
-        <div className="flex h-screen flex-col">
-          <div className="flex min-h-0 flex-1">
-            <Sidebar />
-            <main className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-[var(--bg-primary)]">
-              {children}
-            </main>
-          </div>
-          <StatusBar />
-        </div>
+        <WorkspaceShell sidebar={<Sidebar />} status={<StatusBar />}>
+          {children}
+        </WorkspaceShell>
         <StorageEventListener />
       </body>
     </html>

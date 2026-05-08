@@ -32,7 +32,7 @@ export default async function PagePage({
   ];
 
   return (
-    <article className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-8 py-12">
+    <article className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-8 sm:px-6 sm:py-12 md:px-8">
       <Breadcrumb items={crumbs} />
       <header className="flex flex-col gap-2 pb-2">
         <div className="flex items-center gap-3">
